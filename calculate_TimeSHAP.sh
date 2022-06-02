@@ -6,6 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --account=MENON-SL2-CPU
 #SBATCH --partition=icelake
+#SBATCH --mem=27040
 #SBATCH --mail-type=ALL
 #SBATCH --output=./hpc_logs/performance/v1-0_dynAPM_SHAP_trial_%a.out
 #SBATCH --mail-user=sb2406@cam.ac.uk

@@ -77,7 +77,7 @@ os.makedirs(shap_dir,exist_ok=True)
 SOFA_thresholds = ['dSOFA>=0','dSOFA>=1']
 
 # Load trained optimal model
-sofa_model = SOFA_model.load_from_checkpoint(os.path.join(model_dir,'tune0029','epoch=02-val_loss=0.73.ckpt'))
+sofa_model = SOFA_model.load_from_checkpoint(os.path.join(model_dir,'tune0001','epoch=06-val_loss=0.51.ckpt'))
 sofa_model.eval()
 
 # Load current vocabulary
@@ -117,55 +117,14 @@ AverageEvent = np.zeros([1,len(curr_vocab)+cols_to_add])
 AverageEvent[0,BaselineIndices] = 1
 AverageEvent = pd.DataFrame(AverageEvent,columns=token_labels).astype(int)
 
-# Extract testing set admission IDs
-test_IDs = testing_set.admissionid.unique()
-curr_threshold_idx = 1
-
-def main(array_task_id):
+for curr_threshold_idx in tqdm(range(len(SOFA_thresholds)),'Calculating pruning statistics'):
     
-    # Get current testing set admission ID
-    curr_adm_ID = test_IDs[array_task_id]
-    
-    # Create a patient-specific SHAP directory
-    curr_shap_dir = os.path.join(shap_dir,'AdmID_'+str(curr_adm_ID).zfill(5))
-    os.makedirs(curr_shap_dir,exist_ok=True)
-
     # Initialize custom TimeSHAP model
     ts_SOFA_model = timeshap_SOFA_model(sofa_model,curr_threshold_idx,unknown_index,cols_to_add)
     wrapped_sofa_model = TorchModelWrapper(ts_SOFA_model)
     f_hs = lambda x, y=None: wrapped_sofa_model.predict_last_hs(x, y)
-
-    # Get current multihot dataframe
-    curr_multihot_df = testing_multihot_df[testing_multihot_df.admissionid == str(curr_adm_ID).zfill(5)].reset_index(drop=True)
-    curr_x = np.expand_dims(curr_multihot_df[token_labels].values,0)
     
-    pruning_dict = {'tol': 0.025}
-    coal_plot_data, coal_prun_idx = tsx.local_pruning(f_hs, curr_x, pruning_dict, AverageEvent, entity_uuid=None, entity_col=None, verbose=True)
-
-    # Define event-level prediction parameters
-    if coal_prun_idx == 0:
-        coal_prun_idx = -1
-    
-    event_dict = {'rs': 42, 'nsamples': 32000}
-    pruning_idx = curr_x.shape[1] + coal_prun_idx
-    event_data = tsx.local_event(f_hs, curr_x, event_dict, entity_uuid=None, entity_col=None, baseline=AverageEvent, pruned_idx=pruning_idx)
-    event_data.to_pickle(os.path.join(curr_shap_dir,'Thresh_'+str(curr_threshold_idx)+'_SHAP_Event_Data.pkl'))
-    
-    plot_feats = dict(zip(token_labels, token_labels))
-    feature_dict = {'rs': 42, 'nsamples': 32000, 'feature_names': token_labels, 'plot_features': plot_feats}
-    feature_data = tsx.local_feat(f_hs, curr_x, feature_dict, entity_uuid=None, entity_col=None, baseline=AverageEvent, pruned_idx=pruning_idx)
-    
-    existing_tokens = [token_labels[ix] for ix in np.where(curr_multihot_df[token_labels].values.sum(0) != 0)[0]]
-    filt_feature_data = feature_data[feature_data.Feature.isin(existing_tokens+['Pruned Events'])].reset_index(drop=True)
-    
-    filt_feature_data = filt_feature_data.sort_values(by='Shapley Value',ascending=False).reset_index(drop=True)
-    
-    # Extract item id and item from token
-    filt_feature_data['ITEM'] = filt_feature_data['Feature'].str.extract('(.*)_ITEMID')
-    filt_feature_data['ITEM_ID'] = filt_feature_data['Feature'].str.extract('_ITEMID(.*)_')
-    filt_feature_data.to_pickle(os.path.join(curr_shap_dir,'Thresh_'+str(curr_threshold_idx)+'_SHAP_Feature_Data.pkl'))
-    
-if __name__ == '__main__':
-    
-    array_task_id = int(sys.argv[1])
-    main(array_task_id)
+    # Define pruning parameters
+    pruning_dict = {'tol': [0.00625, 0.0125, 0.025, 0.05], 'path': os.path.join(shap_dir,'prun_all_thresh_idx_'+str(curr_threshold_idx)+'.csv')}
+    prun_indexes = tsx.prune_all(f_hs, testing_multihot_df, 'admissionid', AverageEvent, pruning_dict, token_labels, 'WindowIdx')
+    prun_indexes.to_pickle(os.path.join(shap_dir,'prun_idx_thresh_idx_'+str(curr_threshold_idx)+'.pkl'))
