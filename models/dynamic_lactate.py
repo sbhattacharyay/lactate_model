@@ -211,7 +211,7 @@ class SOFA_model(pl.LightningModule):
         
         optimizer = optim.Adam(params,lr=self.learning_rate)
         return optimizer
-    
+
 # dynamic SOFA prediction model modification for TimeSHAP calculation
 class timeshap_SOFA_model(nn.Module):
     def __init__(self,sofa_model,threshold_idx,unknown_index,cols_to_add):
@@ -263,11 +263,11 @@ class timeshap_SOFA_model(nn.Module):
             curr_rnn_out, curr_rnn_hidden = self.rnn_module(curr_embedding_out, hidden_states)
             
         # -1 on hidden, to select the last layer of the stacked gru
-        assert torch.equal(curr_rnn_out[:,-1,:], curr_rnn_hidden[-1, :, :])
+        #assert torch.equal(curr_rnn_out[:,-1,:], curr_rnn_hidden[-1, :, :])
         
         # Calculate output values for TimeSHAP
-        curr_sofa_out = self.hidden2sofa(curr_rnn_hidden[-1, :, :])
-        curr_sofa_out = F.softmax(curr_sofa_out).cumsum(-1)[:,self.threshold_idx]
+        curr_sofa_out = self.hidden2sofa(curr_rnn_out[:,-1,:])
+        curr_sofa_out = (1 - F.softmax(curr_sofa_out).cumsum(-1))[:,self.threshold_idx]
         
         # Return output value of focus and RNN hidden state
         return curr_sofa_out, curr_rnn_hidden
